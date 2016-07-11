@@ -198,27 +198,45 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		deltas = self._deltas
 		steps = self._numSteps
 		iterators = []
+                
 		for pos, delta, step in zip(initPos, deltas, steps):
-			try:
+                        try:
 				iterator = (self._addTup(pos, self._multTup(i,delta)) 
 				            for i in xrange(step))
+                                iterators.append*
 			except:
-				pass
-
+                                pass
+                        
 	def _addTup(self, tupleA, tupleB):
-		"""
-	    Method that does elemental addition of tuples and returns a the sum as
-	    a tuple of the same length.
-	    """
-		return tuple(np.array(tupleA) + np.array(tupleB))
+                """
+                Method that does elemental addition of tuples and returns a the sum as
+                a tuple of the same length.
+                """
+                tupA = np.array(self._checkTup(tupleA))
+                tupB = np.array(self._checkTup(tupleB))
+		return tuple(tupA + tupB)
 
 	def _multTup(self, tupleA, tupleB):
 		"""
 		Method that does elemental multiplication of tuples and returns the
 		product as a tupe of the same length.
 		"""
-		return tuple(np.array(tupleA) * np.array(tupleB))
-		
+                tupA = np.array(self._checkTup(tupleA))
+                tupB = np.array(self._checkTup(tupleB))
+		return tuple(tupA * tupB)
+
+        def _checkTup(self, tup):
+                """
+                Method that checks if the input is a tuple. If it isn't it returns the
+                value cast as a tuple.
+                """
+                if type(tup) is tuple:
+                        return tup
+                else:
+                        try:
+                                return tuple(tup)
+                        except TypeError:
+                                return tuple([tup])
 
 	def _get_Hook(self):
 		"""Returns a hook object that defines motor hooks"""
