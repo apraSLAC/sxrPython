@@ -9,7 +9,6 @@ from blbase.motor import Motor
 # from blbase.virtualmotor import VirtualMotor     #Commented out until fixed
 from blinst.linac import Linac
 from ConfigParser import SafeConfigParser
-from docopt import docopt
 from ast import literal_eval
 from math import isnan
 
@@ -24,10 +23,10 @@ class Imprint(object):
 		"""Checks the file path and initializes the imprint parameters"""
 		self._path = kwargs.get("path", defaultPath)
 		self._burstMode = kwargs.get("burstMode", False)
-		self._useMotors = kwargs.get("test", True)
+		self._useMotors = kwargs.get("useMotors", True)
 		self._useAttenuator = kwargs.get("useAttenuator", False)
 		self._verbose = kwargs.get("verbose", False)
-		
+		# Initialize all the attributes to be used here
 		self._initParams()
 	
 	def _initParams(self):
@@ -354,7 +353,7 @@ class imprintHooks(object):
 		return status				
 		
 # Exception Classes
-class Error(exception):
+class Error(Exception):
 	"""Base class for exceptions in this module."""
 	pass
 
