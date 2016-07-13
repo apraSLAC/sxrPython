@@ -3,7 +3,7 @@
 import os
 import numpy as np
 from psp import Pv
-from itertools import chain, izip
+from itertools import chain, izip, repeat
 from blbase.iterscan import IterScan
 from blbase.motor import Motor
 # from blbase.virtualmotor import VirtualMotor     #Commented out until fixed
@@ -20,47 +20,68 @@ class Imprint(object):
 	Object that implements the SXD imprint script for any number of motors.
 	"""
 	def __init__(self, **kwargs):
-		"""Checks the file path and initializes the imprint parameters"""
+		"""Checks the file path and initializes the imprint parameters."""
 		self._path = kwargs.get("path", defaultPath)
 		self._burstMode = kwargs.get("burstMode", False)
 		self._useMotors = kwargs.get("useMotors", True)
 		self._useAttenuator = kwargs.get("useAttenuator", False)
-		self._verbose = kwargs.get("verbose", False)
-		# Initialize all the attributes to be used here
+		self._verbose = kwargs.get("verbose", True)
+		self._parser = None               #Parser object for parsing the cfg
+		self._imprintHooks = None         #Hooks object that holds step hooks
+		self._scan = None                 #IterScan object that does the scan
 		self._initParams()
 	
 	def _initParams(self):
 		"""
 		Parses the config file and initializes the motors, iterators, hooks, and
-		IterScan object
+		IterScan object.
 		"""
 		# Maybe move this back into the init
+		# print self._initialPositions, self._deltas, self._numSteps
 		self._parseConfig()
 		self._checkConfig()
-		self._positionIterators = self._initIterators()
+		self._motorIterators = self._initMotorIterators()
+		self._gasAttenIterator = self._initIterator()
+		self._linacIterator = self._initIterator()
 		self._imprintHooks = self._initHooks()
 		self._scan = IterScan(self._imprintHooks, 
-							  *(self._motors, self._postionIterators))
+							  *(self._motors + self._positionIterators))
 
 	def _parseConfig(self):
-		"""Parses the config file and sets all the values for imprint"""
+		"""Parses the config file and sets all the values for imprint."""
 		self._checkPath(self._path)
 		self._parser = SafeConfigParser()
 		self._parser.read(self._path)
 		self._useMotors = self._parseBoolParam("Motors", "useMotors")
 		self._motors = self._parseMotorParams("Motors", "motors")
-		self._intialPositions = self._parseFloatParam("Motors","initalPositions")
-		self._deltas = self._parseFloatParam("Motors", "deltas")
+		self._initialPositions = self._parseFloatParam("Motors",	
+		                                               "initialPositions")
 		self._numSteps = self._parseFloatParam("Motors", "numSteps")
+		self._deltas = self._parseFloatParam("Motors", "deltas")
+		self._loopOnMotorDelta = self._parseIntParam("Motors", "loopOnMotors")
+		self._substitutionsDelta = self._parseFloatParam("Motors", 
+		                                                 "substitutions")
+		self._substitutionIndicesDelta = self._parseIndicesParam(
+			"Motors", "substitutionIndex")
 		self._useAttenuator = self._parseBoolParam("GasAttenuator",
 												   "useAttenuator")
-		self._attenutatorValues = self._parseFloatParam("GasAttenutator",
-														"attenuatorValues")
+		self._attenuatorValues = self._parseFloatParam("GasAttenuator",
+		                                               "attenuatorValues")
 		self._loopOnMotorsAtten = self._parseIntParam("GasAttenuator", 
 													  "loopOnMotors")
+		self._substitutionsAtten = self._parseFloatParam("GasAttenuator", 
+		                                                 "substitutions")
+		self._substitutionIndicesAtten = self._parseIndicesParam(
+			"GasAttenuator", "substitutionIndex")
 		self._burstMode = self._parseBoolParam("Linac", "burstMode")
 		self._numShots = self._parseFloatParam("Linac", "numShots")
 		self._loopOnMotorsNumShots = self._parseIntParam("Linac", "loopOnMotors")
+		self._substitutionsLinac = self._parseFloatParam("Linac", 
+		                                                 "substitutions")
+		self._substitutionIndicesLinac = self._parseIndicesParam(
+			"Linac", "substitutionIndex")
+		# print self._initialPositions, self._deltas, self._numSteps
+
 
 	def _checkPath(self, path):
 		"""Checks if the given path is correct."""
@@ -72,14 +93,14 @@ class Imprint(object):
 		boolStr = self._parser.get(section, subSection)
 		if boolStr.lower() == "true" or boolStr.lower() == "t":
 			return True
-		elif bookStr.lower() == "false" or bookStr.lower() == "f":
+		elif boolStr.lower() == "false" or boolStr.lower() == "f":
 			return False
 		else:
-			raise ValueError("Entry for section '{0}', subsection '{1}' is not \
+			raise ValueError("Entry for section '{0}', subSection '{1}' is not \
 valid. Must be True/False or T/F (not case sensitive).").format(section,
-																subsection)
+																subSection)
 		
-	def _parseMotorParams(self, section, subsection):
+	def _parseMotorParams(self, section, subSection):
 		"""Parses the PV config entries into a list of strs and tuples."""
 		pvStr = self._parser.get(section, subSection)
 		motorPVs = literal_eval(pvStr)
@@ -91,33 +112,38 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 				motors.append(VirtualMotor(motorPV))
 		return motors
 
-	def _parseFloatParam(self, section, subsection):
+	def _parseFloatParam(self, section, subSection):
 		"""Parses list/tuples of floats, subsituting string values for nan."""
-		floatStr = self._parser.get(section, subsection)
+		floatStr = self._parser.get(section, subSection)
 		floatEval = literal_eval(floatStr)
 		floatList = []
-		for val in floatList:
+		for val in floatEval:
 			try:
 				floatList.append(float(val))
 			except ValueError:
 				floatList.append(float('nan'))
 			except TypeError:
-				floatTuple = []
-				for tupVal in floatTuple:
+				inList = []
+				for inVal in val:
 					try:
-						floatTuple.append(float(tupVal))
+						inList.append(float(inVal))
 					except ValueError:
-						floatTuple.append(float('nan'))
-				floatList.append(floatTuple)
+						inList.append(float('nan'))
+				floatList.append(inList)
 		return floatList
 	
-	def _parseIntParam(self, section, subsection):
-		"""Parses an number or a list of numbers into a list of ints.""" 
-		intStr = self._parser.get(section, subsection)
+	def _parseIntParam(self, section, subSection):
+		"""Parses a number or a list of numbers into a list of ints.""" 
+		intStr = self._parser.get(section, subSection)
 		try:
 			return [int(val) for val in literal_eval(intStr)]
 		except TypeError:
 			return [int(val) for val in list(literal_eval(intStr))]
+
+	def _parseIndicesParam(self, section, subSection):
+		"""Parses indices into a list of lists."""
+		idxStr = self._parser.get(section, subSection)
+		return literal_eval(idxStr)
 
 	def _checkConfig(self):
 		"""
@@ -126,19 +152,19 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		"""
 		numPositions, numMotors, numDeltas = [], [], []
 		for motor, pos, delta in zip(self._motors, self._initialPositions, 
-									 self.deltas):
+		                             self._deltas):
 			try:
 				numMotors.append(motor.numMotors)
 			except AttributeError:
 				numMotors.append(1)
 			try:
-				numPositons.append(len(pos))
+				numPositions.append(len(pos))
 			except TypeError:
 				numPositions.append(len([pos]))
 			try:
-				numDeltas.append(len(delta))
+				numDeltas.append(len(delta[0]))
 			except TypeError:
-				numDeltas.append(len([delta]))
+				numDeltas.append(len([delta[0]]))
 		if numMotors != numPositions:
 			raise SizeMismatchError("Motors", "initialPositions", numMotors,
 									initialPositions)
@@ -152,7 +178,23 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 								"Attenutation")
 		if self._burstMode:
 			self._checkNumSteps(self._loopOnMotorsNumShots, self._numShots,
-								"numShots")
+			                    "numShots")
+		if len(self._substitutionsDelta) != len(self._substitutionIndicesDelta):
+			raise SizeMismatchError("Delta Substitutions", 
+			                        "Delta Substitution Indices", 
+			                        len(self._substitutionsDelta),
+			                        len(self._substitutionIndicesDelta))
+		if len(self._substitutionsAtten) != len(self._substitutionIndicesAtten):
+			raise SizeMismatchError("Attenuator Values Substitutions", 
+			                        "Attenuator Values Substitution Indices", 
+			                        len(self._substitutionsAtten),
+			                        len(self._substitutionIndicesAtten))
+		if len(self._substitutionsLinac) != len(self._substitutionIndicesLinac):
+			raise SizeMismatchError("numShots Substitutions", 
+			                        "numShots Substitution Indices", 
+			                        len(self._substitutionsLinac),
+			                        len(self._substitutionIndicesLinac))
+
 		# Passed Check
 
 	def _checkNumSteps(self, loopOnMotors, vals, name):
@@ -169,25 +211,64 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 									"Number of inputted {0} Values".format(name),
 									expectedNumVals, len(self._numShots))
 		
-	def _initIterators(self):
+	def _initMotorIterators(self):
 		"""
 		Creates a list of iterators that correspond to the inputted motors. It
 		can handle motor groups by returning izip-ped iterators for each motor.
 		"""
-		initPos = self._initialPositons
+		initPos = self._initialPositions
 		deltas = self._deltas
 		steps = self._numSteps
 		iterators = []
-				
 		for pos, delta, step in zip(initPos, deltas, steps):
-			if type(pos) is not tuple or type(delta) is not tuple:
-			    iterators.append((pos + delta*i for i in xrange(step)))
+			if type(pos) is not tuple or type(delta) is not tuple:	
+				iterators.append(iter([pos+delta*i for i in xrange(int(step))]))
 			else:
 				iterator = []
 				for inPos, inDelta in zip(pos, delta):
-					iterator.append(inPos + inDelta*i for i in xrange(step))
+					inIter = iter([inPos + inDelta*i for i in xrange(int(step))])
+					iterator.append(inIter)
 				iterators.append(izip(*iterator))
 		return iterators
+
+	def _initIterator(self, loopOnMotors, vals, steps, substitutions, indices):
+		"""
+		Method that returns a generator to be used by the iterscan object.
+		"""
+		# Build as a list
+		iterList = self._buildIterList(loopOnMotors, vals, steps):
+		subbedList = vals
+		for sub, i in zip(substitutions, indices):
+			subbedList[tuple(np.array(i))] = sub
+		return iter(subbedList)
+		
+	def _buildIterList(self, loopOnDims, vals, steps):
+		"""
+		Method that builds a flattened list of values of the correct size based
+		on the inputted values, the dimensions to loop on, and the total number
+		of steps.
+		"""
+		newVals = np.array(vals)
+		if loopOnDims:
+			valShape = self._getValShape(loopOnDims, steps)
+			if newVals.shape != valShape):
+				newVals = newVals.reshape(valShape)
+		for i, step in enumerate(steps):
+			if i not in loopOnDims:
+				newVals = np.repeat(np.expand_dims(newVals,axis=i), step, axis=i)
+		return list(newVals.flatten())
+
+	def _prod(self, vals):
+		"""Returns the product of all the inputted values."""
+		return np.cumprod(np.array(shape).flatten())[-1]
+
+	def _getValShape(self, loopOnDims, steps):
+		"""
+		Returns the shape that the inputted values should be given the loop 
+		dimensions and the steps in each dimension.
+		"""
+		loopOnDims.sort()
+		return tuple([steps[dim] for dim in loopOnDims])
 
 	def _initHooks(self):
 		"""Returns a hook object that defines motor hooks."""
@@ -207,11 +288,16 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		self._scan.test_mesh(do_print = self._verbose)
 
 	def run(self):
-		"""Runs the scan"""
+		"""Runs the scan."""
 		self._scan.scan_mesh(do_print = self._verbose)
+		
+	def update(self):
+		"""Rereads the values from the cfg file."""
+		self._initParams()
 
 	@property
-	def path(self): return self._path
+	def path(self): 
+		return self._path
 
 	@path.setter
 	def path(self, val):
@@ -366,8 +452,8 @@ class ConfigPathError(Error):
 
 class SizeMismatchError(Error):
 	"""
-	Exception raised if the inputted cfg values do not have the correct 
-	corresponding shapes.
+	Exception raised if the inputted values do not have the correct corresponding 
+	shapes.
 	"""
 	def __init__(self, nameA, nameB, lenA, lenB):
 		self._nameA = nameA
@@ -375,11 +461,11 @@ class SizeMismatchError(Error):
 		self._lenA = lenA
 		self._lenB = lenB
 	def __str__(self):
-		return repr("Config values for '{0}' and '{1}' have incorrect \
+		return repr("Values for '{0}' and '{1}' have incorrect \
 corresponing sizes {2} and {3}.".format(self._nameA, self.nameB, 
                                         self._lenA, self._lenB))
 	
-
+scan = Imprint()
 # if __name__ == "__main__":
 # 	arguments = docopt(__doc__)
 	
