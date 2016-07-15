@@ -40,12 +40,12 @@ class Imprint(object):
 		self._checkConfig()
 		self._motorIterators = self._initMotorIterators()
 		self._gasAttenIterator = self._initIterator(
-			self._loopOnMotorsAtten,
+			self._loopOnStepsAtten,
 			self._attenuatorValues,
 			self._substitutionsAtten,
 			self._substitutionIndicesAtten)
 		self._linacIterator = self._initIterator(
-			self._loopOnMotorsNumShots,
+			self._loopOnStepsNumShots,
 			self._numShots,
 			self._substitutionsLinac,
 			self._substitutionIndicesLinac)
@@ -66,10 +66,10 @@ class Imprint(object):
 			"Motors", "initialPositions")
 		self._numSteps = self._parseIntParam(
 			"Motors", "numSteps")
-		self._deltaLists = self._parseFloatParam(
-			"Motors", "deltas", True)
-		self._loopOnMotorsDelta = self._parseIntParam(
-			"Motors", "loopOnMotors")
+		self._deltas = self._parseFloatParam(
+			"Motors", "deltas")
+		self._loopOnStepsDelta = self._parseIntParam(
+			"Motors", "loopOnSteps")
 		self._substitutionsDelta = self._parseFloatParam(
 			"Motors", "substitutions")
 		self._substitutionIndicesDelta = self._parseIndicesParam(
@@ -78,8 +78,8 @@ class Imprint(object):
 			"GasAttenuator", "useAttenuator")
 		self._attenuatorValues = self._parseFloatParam(
 			"GasAttenuator", "attenuatorValues")
-		self._loopOnMotorsAtten = self._parseIntParam(
-			"GasAttenuator", "loopOnMotors")
+		self._loopOnStepsAtten = self._parseIntParam(
+			"GasAttenuator", "loopOnSteps")
 		self._substitutionsAtten = self._parseFloatParam(
 			"GasAttenuator", "substitutions")
 		self._substitutionIndicesAtten = self._parseIndicesParam(
@@ -88,8 +88,8 @@ class Imprint(object):
 			"Linac", "burstMode")
 		self._numShots = self._parseFloatParam(
 			"Linac", "numShots")
-		self._loopOnMotorsNumShots = self._parseIntParam(
-			"Linac", "loopOnMotors")
+		self._loopOnStepsNumShots = self._parseIntParam(
+			"Linac", "loopOnSteps")
 		self._substitutionsLinac = self._parseFloatParam(
 			"Linac", "substitutions")
 		self._substitutionIndicesLinac = self._parseIndicesParam(
@@ -128,9 +128,9 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 				motors.append(Motor(motorPV, name = Pv.get(motorPV+".DESC")))
 			else:
 				motors.append(VirtualMotor(motorPV))
-		return motors
+		return tuple(motors)
 
-	def _parseFloatParam(self, section, subSection, multi = False):
+	def _parseFloatParam(self, section, subSection):
 		"""
 		Parses list/tuples of floats, subsituting string values for nan. If
 		multi is set to True, it will separate the lists into separate lists and
@@ -138,16 +138,6 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		"""
 		floatStr  = self._parser.get(section, subSection)
 		floatEval = literal_eval(floatStr)
-		if not multi:
-			return self._getFloatList(floatEval)
-		else:
-			floatLists = []
-			for floatList in np.array(floatEval).T:
-				floatLists.append(self._getFloatList(floatList))
-			return floatLists
-			
-	def _getFloatList(self, floatEval):
-		"""Replaces string values in list with nan and builds nested lists."""
 		floatList = []
 		for val in floatEval:
 			try:
@@ -184,7 +174,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		"""
 		numPositions, numMotors, numDeltas = [], [], []
 		for motor, pos, delta in zip(self._motors, self._initialPositions, 
-		                             self._deltaLists):
+		                             self._deltas):
 			try: numMotors.append(motor.numMotors)
 			except AttributeError:
 				numMotors.append(1)
@@ -204,11 +194,11 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 			raise SizeMismatchError("Motors", "numSteps", 
 			                        numMotors, self._numSteps)
 		if self._useAttenuator:
-			self._checkNumSteps(self._loopOnMotorsAtten, 
+			self._checkNumSteps(self._loopOnStepsAtten, 
 			                    self._attenuatorValues,
 								"Attenutation")
 		if self._burstMode:
-			self._checkNumSteps(self._loopOnMotorsNumShots, 
+			self._checkNumSteps(self._loopOnStepsNumShots, 
 			                    self._numShots,
 			                    "numShots")
 		if (len(self._substitutionsDelta) != len(self._substitutionIndicesDelta)
@@ -237,12 +227,12 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		
 		# Passed Check
 
-	def _checkNumSteps(self, loopOnMotors, vals, name):
+	def _checkNumSteps(self, loopOnSteps, vals, name):
 		"""
-		Checks if the number of values in vals corresponds with the loopOnMotors 
+		Checks if the number of values in vals corresponds with the loopOnSteps 
 		and numSteps.
 		"""
-		loopOnMotorBinary = [1 if x in loopOnMotors else 0 
+		loopOnMotorBinary = [1 if x in loopOnSteps else 0 
 							 for x in xrange(len(self._numSteps))]
 		expectedNumVals = sum(loopVal*steps for loopVal, steps in zip(
 			loopOnMotorBinary, self._numSteps))
@@ -257,54 +247,60 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		can handle motor groups by returning izip-ped iterators for each motor.
 		"""
 		initPos             = self._initialPositions
-		deltaLists          = list(self._deltaLists)
+		deltas              = self._deltas
 		steps               = self._numSteps
-		loopOnMotors        = self._loopOnMotorsDelta
+		loopOnStepsDelta    = self._loopOnStepsDelta
 		substitutions       = self._substitutionsDelta
 		substitutionIndices = self._substitutionIndicesDelta
 		iterators           = []
-		print len(deltaLists)
-		for d in deltaLists:
-			print len(d)
+		posLists            = []
+		for delta, loopMot in zip(delta, loopOnStepsDelta):
+			if type(delta) is list or type(delta) is tuple:
+				for inDelta in delta:
+					deltaLists.append(self._buildIterList(loopMot,inDelta,steps))
+			else:
+				deltaLists.append(self._buildIterList(loopMot, delta, steps))
 		try:
-			for sub, i in substitutionIndices:
-				deltaLists[tuple(np.array(i))] = sub				
+			for sub, idx in zip(substitutions, substitutionIndices):
+				try:
+					flatIdx = int(np.dot(idx[1:-1],steps[:-1]) + idx[-1])
+				except ValueError:
+					flatIdx = int(np.dot(idx[1][:-1],steps[:-1]) + idx[1][-1])
+				except TypeError:
+					flatIdx = int(idx[1])
+				deltaLists[[idx[0]]][flatIdx] = float(sub)
 		except ValueError: pass
 		for pos, deltaList, step in zip(initPos, deltaLists, steps):
-			if type(pos) is not list:	
-				iterators.append(iter([pos + d for d in np.cumsum(deltaList)]))
-			else:
-				iterator = []
-				for inPos, inDelta in zip(pos, deltaList):
-					inIter = iter([inPos + inD for inD in np.cumsum(inDelta)])
-					iterator.append(inIter)
-				iterators.append(izip(*iterator))
+			posList = [delta + deltaList[i-1] if i%steps else delta + pos
+			           for i, delta in enumerate(deltaList)]
+			posLists.append(posList)
+			iterators.append(iter(posList))
 		return iterators
 
-	def _initIterator(self, loopOnMotors, vals, substitutions, indices):
+	def _initIterator(self, loopOnSteps, vals, substitutions, indices):
 		"""
 		Method that returns a generator to be used by the iterscan object.
 		"""
 		# Build as a list
-		iterList = self._buildIterList(loopOnMotors, vals, self._numSteps)
+		iterList = self._buildIterList(loopOnSteps, vals, self._numSteps)
 		substitutedList = list(vals)
 		for sub, i in zip(substitutions, indices):
 			substitutedList[tuple(np.array(i))] = sub
 		return iter(substitutedList)
 		
-	def _buildIterList(self, loopOnDims, vals, steps):
+	def _buildIterList(self, loopOnSteps, vals, steps):
 		"""
 		Method that builds a flattened list of values of the correct size based
 		on the inputted values, the dimensions to loop on, and the total number
 		of steps.
 		"""
 		newVals = np.array(vals)
-		if loopOnDims:
-			valShape = self._getValShape(loopOnDims, steps)
+		if loopOnSteps:
+			valShape = self._getValShape(loopOnSteps, steps)
 			if newVals.shape != valShape:
 				newVals = newVals.reshape(valShape)
 		for i, step in enumerate(steps):
-			if i not in loopOnDims:
+			if i not in loopOnSteps:
 				newVals = np.repeat(np.expand_dims(newVals,axis=i), step, axis=i)
 		return list(newVals.flatten())
 
@@ -312,13 +308,13 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		"""Returns the product of all the inputted values."""
 		return np.cumprod(np.array(shape).flatten())[-1]
 
-	def _getValShape(self, loopOnDims, steps):
+	def _getValShape(self, loopOnSteps, steps):
 		"""
 		Returns the shape that the inputted values should be given the loop 
 		dimensions and the steps in each dimension.
 		"""
-		loopOnDims.sort()
-		return tuple([steps[dim] for dim in loopOnDims])
+		loopOnSteps.sort()
+		return tuple([steps[dim] for dim in loopOnSteps])
 
 	def _initHooks(self):
 		"""Returns a hook object that defines motor hooks."""
