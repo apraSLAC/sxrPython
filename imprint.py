@@ -21,7 +21,7 @@ class Imprint(object):
 	"""
 	def __init__(self, **kwargs):
 		"""Checks the file path and initializes the imprint parameters."""
-		self._path = kwargs.get("path", defaultPath)
+		self._path          = kwargs.get("path", defaultPath)
 		self._burstMode     = kwargs.get("burstMode", False)
 		self._useMotors     = kwargs.get("useMotors", True)
 		self._useAttenuator = kwargs.get("useAttenuator", False)
@@ -124,7 +124,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		motorPVs = literal_eval(pvStr)
 		motors   = []
 		for motorPV in motorPVs:
-			if type(motorPV) is str:
+			if isinstance(motorPV, str):
 				motors.append(Motor(motorPV, name = Pv.get(motorPV+".DESC")))
 			else:
 				motors.append(VirtualMotor(motorPV))
@@ -255,7 +255,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		iterators           = []
 		posLists            = []
 		for delta, loopMot in zip(delta, loopOnStepsDelta):
-			if type(delta) is list or type(delta) is tuple:
+			if isinstance(delta, list) or isinstance(delta, tuple):
 				for inDelta in delta:
 					deltaLists.append(self._buildIterList(loopMot,inDelta,steps))
 			else:
@@ -358,7 +358,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 
 	@useMotor.setter
 	def useMotor(self, val):
-		if type(val) is bool:
+		if isinstance(val, bool):
 			self._useMotor = val
 			self._init_params()
 		else: print "Please enter True or False"
@@ -369,7 +369,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 
 	@burstMode.setter
 	def burstMode(self, val):
-		if type(val) is bool:
+		if isinstance(val, bool):
 			self._burstMode = val
 			self._init_params()
 		else: print "Please enter True or False"
@@ -380,7 +380,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 
 	@useAttenuator.setter
 	def useAttenuator(self, val):
-		if type(val) is bool:
+		if isinstance(val, bool):
 			self._useAttenuator = val
 		else: print "Please enter True or False"
 
@@ -390,7 +390,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 
 	@verbose.setter
 	def verbose(self, val):
-		if type(val) is bool:
+		if isinstance(val, bool):
 			self._verbose = val
 		else: print "Please enter True or False"
 
