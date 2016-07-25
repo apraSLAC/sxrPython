@@ -108,7 +108,7 @@ class Imprint(object):
 
 	def _parseBoolParam(self, section, subSection):
 		"""Parses boolean cfg entries to make sure they are True or False."""
-		boolStr = self._parser.get(section, subSection)
+		boolStr = self._parser.get(section, subSection)		
 		if boolStr.lower() == "true" or boolStr.lower() == "t":
 			return True
 		elif boolStr.lower() == "false" or boolStr.lower() == "f":
@@ -252,7 +252,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		loopOnStepsDelta    = self._loopOnStepsDelta
 		substitutions       = self._substitutionsDelta
 		substitutionIndices = self._substitutionIndicesDelta
-		iterators           = []
+		deltaLists          = []
 		posLists            = []
 		for delta, loopMot in zip(delta, loopOnStepsDelta):
 			if isinstance(delta, list) or isinstance(delta, tuple):
@@ -263,30 +263,25 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		try:
 			for sub, idx in zip(substitutions, substitutionIndices):
 				try:
-					flatIdx = int(np.dot(idx[1:-1],steps[:-1]) + idx[-1])
-				except ValueError:
-					flatIdx = int(np.dot(idx[1][:-1],steps[:-1]) + idx[1][-1])
+					flatIdx = np.sum(val * np.prod(steps[i+1:]) for i, val in 
+					                 enumerate(idx[1:]))
 				except TypeError:
-					flatIdx = int(idx[1])
-				deltaLists[[idx[0]]][flatIdx] = float(sub)
-		except ValueError: pass
-		for pos, deltaList, step in zip(initPos, deltaLists, steps):
-			posList = [delta + deltaList[i-1] if i%steps else delta + pos
-			           for i, delta in enumerate(deltaList)]
+					flatIdx = idx[1]
+				deltaLists[[idx[0]]][int(flatIdx)] = float(sub)
+		except ValueError: 
+			pass                          #Do nothing if substitutions is empty
+		for i, (pos, step) in enumerate(zip(initPos, steps)):
+			if isinstance(pos, tuple) or isinstance(pos, list):
+				for inPos in pos:
+					deltaList = deltaLists[::-1].pop()					
+					posList = [delta + deltaList[i-1] if i % steps else 
+					           delta + inPos for i,delta in enumerate(deltaList)]
+			else:
+				deltaList = deltaLists[::-1].pop()
+				posList = [delta + deltaList[i-1] if i%steps else delta + pos
+					       for i, delta in enumerate(deltaList)]
 			posLists.append(posList)
-			iterators.append(iter(posList))
-		return iterators
-
-	def _initIterator(self, loopOnSteps, vals, substitutions, indices):
-		"""
-		Method that returns a generator to be used by the iterscan object.
-		"""
-		# Build as a list
-		iterList = self._buildIterList(loopOnSteps, vals, self._numSteps)
-		substitutedList = list(vals)
-		for sub, i in zip(substitutions, indices):
-			substitutedList[tuple(np.array(i))] = sub
-		return iter(substitutedList)
+		return iter(zip(*posLists))
 		
 	def _buildIterList(self, loopOnSteps, vals, steps):
 		"""
@@ -303,6 +298,17 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 			if i not in loopOnSteps:
 				newVals = np.repeat(np.expand_dims(newVals,axis=i), step, axis=i)
 		return list(newVals.flatten())
+
+	def _initIterator(self, loopOnSteps, vals, substitutions, indices):
+		"""
+		Method that returns a generator to be used by the iterscan object.
+		"""
+		# Build as a list
+		iterList = self._buildIterList(loopOnSteps, vals, self._numSteps)
+		substitutedList = list(vals)
+		for sub, i in zip(substitutions, indices):
+			substitutedList[tuple(np.array(i))] = sub
+		return iter(substitutedList)
 
 	def _prod(self, vals):
 		"""Returns the product of all the inputted values."""
