@@ -12,8 +12,9 @@ from ConfigParser import SafeConfigParser
 from ast import literal_eval
 from math import isnan
 
-defaultPath = "imprintConfigurations/imprintStandard.cfg"
-pvAttenuator = "GATT:FEE1:310:P_DES"
+defaultPath     = "imprintConfigurations/imprintStandard.cfg"
+pvAttenuator    = "GATT:FEE1:310:P_DES"
+pvAttenuatorRBV = "VGBA:FEE1:311:PMON"
 
 class Imprint(object):
 	"""
@@ -50,8 +51,8 @@ class Imprint(object):
 			self._substitutionsLinac,
 			self._substitutionIndicesLinac)
 		self._imprintHooks = self._initHooks()
-		self._scan = IterScan(self._imprintHooks, 
-							  *(self._motors + self._motorIterators))
+		self._scan = IterScan(self._imprintHooks, self._motors, 
+		                      self._motorIterators)
 
 	def _parseConfig(self):
 		"""Parses the config file and sets all the values for imprint."""
@@ -68,7 +69,7 @@ class Imprint(object):
 			"Motors", "numSteps")
 		self._deltas = self._parseFloatParam(
 			"Motors", "deltas")
-		self._loopOnStepsDelta = self._parseIntParam(
+		self._loopOnStepsDelta = self._parseFloatParam(
 			"Motors", "loopOnSteps")
 		self._substitutionsDelta = self._parseFloatParam(
 			"Motors", "substitutions")
@@ -121,8 +122,9 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 	def _parseMotorParams(self, section, subSection):
 		"""Parses the PV config entries into a list of strs and tuples."""
 		pvStr    = self._parser.get(section, subSection)
-		motorPVs = literal_eval(pvStr)
+		motorPVs = literal_eval_list(pvStr)
 		motors   = []
+		# Fix this so that it returns a motor tuple every time
 		for motorPV in motorPVs:
 			if isinstance(motorPV, str):
 				motors.append(Motor(motorPV, name = Pv.get(motorPV+".DESC")))
@@ -137,7 +139,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		return that list of lists.
 		"""
 		floatStr  = self._parser.get(section, subSection)
-		floatEval = literal_eval(floatStr)
+		floatEval = literal_eval_list(floatStr)
 		floatList = []
 		for val in floatEval:
 			try:
@@ -158,14 +160,14 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		"""Parses a number or a list of numbers into a list of ints.""" 
 		intStr = self._parser.get(section, subSection)
 		try:
-			return [int(val) for val in literal_eval(intStr)]
+			return [int(val) for val in literal_eval_list(intStr)]
 		except TypeError:
-			return [int(val) for val in list(literal_eval(intStr))]
+			return [int(val) for val in list(literal_eval_list(intStr))]
 
 	def _parseIndicesParam(self, section, subSection):
 		"""Parses indices into a list of lists."""
 		idxStr = self._parser.get(section, subSection)
-		return literal_eval(idxStr)
+		return literal_eval_list(idxStr)
 
 	def _checkConfig(self):
 		"""
@@ -254,7 +256,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 		substitutionIndices = self._substitutionIndicesDelta
 		deltaLists          = []
 		posLists            = []
-		for delta, loopMot in zip(delta, loopOnStepsDelta):
+		for delta, loopMot in zip(deltas, loopOnStepsDelta):
 			if isinstance(delta, list) or isinstance(delta, tuple):
 				for inDelta in delta:
 					deltaLists.append(self._buildIterList(loopMot,inDelta,steps))
@@ -267,9 +269,8 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 					                 enumerate(idx[1:]))
 				except TypeError:
 					flatIdx = idx[1]
-				deltaLists[[idx[0]]][int(flatIdx)] = float(sub)
-		except ValueError: 
-			pass                          #Do nothing if substitutions is empty
+				deltaLists[idx[0]][int(flatIdx)] = float(sub)
+		except ValueError: pass           #Do nothing if substitutions is empty
 		for i, (pos, step) in enumerate(zip(initPos, steps)):
 			if isinstance(pos, tuple) or isinstance(pos, list):
 				for inPos in pos:
@@ -278,7 +279,7 @@ valid. Must be True/False or T/F (not case sensitive).").format(section,
 					           delta + inPos for i,delta in enumerate(deltaList)]
 			else:
 				deltaList = deltaLists[::-1].pop()
-				posList = [delta + deltaList[i-1] if i%steps else delta + pos
+				posList = [delta + deltaList[i-1] if i%step else delta + pos
 					       for i, delta in enumerate(deltaList)]
 			posLists.append(posList)
 		return iter(zip(*posLists))
@@ -457,9 +458,9 @@ class imprintHooks(object):
 					attenVal = self._attenutatorValues.next()
 					if not isnan(attenVal):
 						Pv.put(pvAttenuator, attenVal)
-						Pv.wait_for_value(pvAtenuator+".RBV", attenVal)
+						Pv.wait_for_value(pvAtenuatorRBV, attenVal)
 						self._attenStatus = "Reached {0}.".format(
-							Pv.get(pvAtenuator+".RBV"))
+							Pv.get(pvAtenuatorRBV))
 					else: self._attenStatus = "Got NaN."
 				except AttributeError:
 					self._attenStatus = "Invalid input used."
@@ -516,6 +517,11 @@ class SizeMismatchError(Error):
 		return repr("Values for '{0}' and '{1}' have incorrect \
 corresponing sizes {2} and {3}.".format(self._nameA, self._nameB, 
                                         self._lenA, self._lenB))
+
+
+def literal_eval_list(expression):
+	"""Returns a literal evaluation of the expression plus brackets."""
+	return literal_eval("[{0}]".format(expression))
 	
 scan = Imprint()
 # if __name__ == "__main__":
